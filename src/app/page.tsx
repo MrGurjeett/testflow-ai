@@ -137,6 +137,29 @@ export default function DashboardPage() {
     return () => clearTimers();
   }, []);
 
+  // Sync theme from storage on mount (matches the no-flash script in layout).
+  useEffect(() => {
+    const stored = typeof window !== 'undefined' ? localStorage.getItem('theme') : null;
+    if (stored === 'light' || stored === 'dark') {
+      setTheme(stored);
+    }
+  }, []);
+
+  // Apply the active theme to <html> and persist it.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'light') {
+      root.classList.add('light');
+    } else {
+      root.classList.remove('light');
+    }
+    try {
+      localStorage.setItem('theme', theme);
+    } catch {
+      /* storage unavailable */
+    }
+  }, [theme]);
+
   const handleSelectPreset = (id: string) => {
     setSelectedPresetId(id);
     const preset = PRESETS.find((p) => p.id === id);
@@ -296,19 +319,59 @@ export default function DashboardPage() {
         rawResponse: req.rawResponse
       };
 
+      // Coverage % derived from how many requirements are traced.
+      const coverage = testD.coverage_summary || {};
+      const traceability = testD.traceability || {};
+      const totalReq = coverage.total_requirements || 0;
+      const coveredReq = coverage.requirements_covered ?? Object.keys(traceability).length;
+      const coveragePercent = totalReq ? Math.round((coveredReq / totalReq) * 100) : 0;
+
+      // BDD scenarios come back with `scenario_name` and array-valued
+      // given/when/then. Normalize to the flat string shape the UI renders.
+      const toStep = (v: any): string =>
+        Array.isArray(v) ? v.join(' and ') : (v || '');
+
       const parsedDesign = {
         functionalTestCount: testD.functional_tests?.length || 0,
         bddScenarioCount: testD.bdd_scenarios?.length || 0,
-        coverageSummary: testD.coverageSummary || '',
-        scenarios: testD.bdd_scenarios || [],
+        coverageSummary: '',
+        coveragePercent,
+        scenarios: (testD.bdd_scenarios || []).map((s: any) => ({
+          title: s.scenario_name || s.title || '',
+          given: toStep(s.given),
+          when: toStep(s.when),
+          then: toStep(s.then),
+        })),
         rawResponse: testD.rawResponse
       };
 
+      // Automation readiness can be a number or a "100%" string.
+      const readinessRaw = auto.automation_summary?.automation_readiness;
+      const automationReadiness =
+        typeof readinessRaw === 'string'
+          ? parseInt(readinessRaw, 10) || 0
+          : (readinessRaw || 0);
+
+      // Code lives under generated_artifacts, not a flat codeSnippets array.
+      const artifacts = auto.generated_artifacts || {};
+      const codeSnippets = [
+        ...(artifacts.page_objects || []).map((p: any) => ({
+          filename: `pages/${p.name}.ts`,
+          language: 'typescript',
+          code: p.code,
+        })),
+        ...(artifacts.test_scripts || []).map((t: any) => ({
+          filename: `tests/${t.id}.spec.ts`,
+          language: 'typescript',
+          code: t.code,
+        })),
+      ];
+
       const parsedAutomation = {
-        frameworkUsed: auto.framework || '',
+        frameworkUsed: auto.framework || auto.automation_summary?.framework_used || '',
         testCasesAutomated: auto.automation_summary?.total_test_cases_automated || 0,
-        automationReadiness: auto.automation_summary?.automation_readiness || 0,
-        codeSnippets: auto.codeSnippets || [],
+        automationReadiness,
+        codeSnippets,
         rawResponse: auto.rawResponse
       };
 
@@ -543,7 +606,7 @@ export default function DashboardPage() {
                 metrics={[
                   { label: 'Functional Tests', value: activeOutputs.design?.functionalTestCount || 0 },
                   { label: 'BDD Scenarios', value: activeOutputs.design?.bddScenarioCount || 0 },
-                  { label: 'Coverage Summary', value: activeOutputs.design?.bddScenarioCount ? '92%' : '0%', accentColor: 'text-cyan-400' }
+                  { label: 'Coverage Summary', value: `${(activeOutputs.design as any)?.coveragePercent ?? 0}%`, accentColor: 'text-cyan-400' }
                 ]}
               >
                 <div className="space-y-3">
@@ -580,7 +643,7 @@ export default function DashboardPage() {
                 modelInfo={modelMetadata.automation}
                 rawJson={activeOutputs.automation}
                 metrics={[
-                  { label: 'Framework', value: activeOutputs.automation?.frameworkUsed ? 'Playwright' : 'None' },
+                  { label: 'Framework', value: activeOutputs.automation?.frameworkUsed ? activeOutputs.automation.frameworkUsed.charAt(0).toUpperCase() + activeOutputs.automation.frameworkUsed.slice(1) : 'None' },
                   { label: 'Automated Tests', value: activeOutputs.automation?.testCasesAutomated || 0 },
                   { label: 'Automation Readiness', value: activeOutputs.automation?.automationReadiness ? `${activeOutputs.automation.automationReadiness}%` : '0%', accentColor: 'text-violet-400' }
                 ]}

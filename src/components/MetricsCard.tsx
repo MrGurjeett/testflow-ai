@@ -23,23 +23,23 @@ export default function MetricsCard({ metrics }: MetricsCardProps) {
         const colorClass = metric.accentColor || 'text-indigo-400';
 
         return (
-          <div 
-            key={i} 
-            className="rounded-xl border border-zinc-850 bg-zinc-950/50 p-4 transition-all duration-300 hover:border-zinc-800 flex flex-col justify-between shadow-inner"
+          <div
+            key={i}
+            className="rounded-xl border border-zinc-850 bg-zinc-950/50 p-4 transition-all duration-300 hover:border-zinc-800 flex flex-col justify-between shadow-inner min-w-0"
           >
             {/* Metric Header */}
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block truncate">
+            <div className="flex items-start justify-between gap-2 min-w-0">
+              <span className="text-[10px] font-bold text-zinc-500 uppercase leading-tight break-words block min-h-[28px] min-w-0">
                 {metric.label}
               </span>
               {Icon && (
-                <Icon className={`h-4 w-4 ${colorClass}`} />
+                <Icon className={`h-4 w-4 flex-shrink-0 ${colorClass}`} />
               )}
             </div>
 
             {/* Metric Value */}
-            <div className="mt-3">
-              <span className={`text-2xl font-extrabold tracking-tight text-white block font-mono`}>
+            <div className="mt-3 min-w-0">
+              <span className={`text-2xl font-extrabold tracking-tight text-white block font-mono break-words leading-tight`}>
                 {metric.value}
               </span>
               {metric.subtext && (

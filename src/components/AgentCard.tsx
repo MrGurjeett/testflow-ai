@@ -83,22 +83,24 @@ export default function AgentCard({
     <div className={`rounded-2xl border flex flex-col justify-between transition-all duration-300 ${cardBorder} ${pulseGlow} h-full`}>
       
       {/* Card Header */}
-      <div className="flex items-center justify-between border-b border-zinc-900 p-5">
-        <div className="flex items-center space-x-3 min-w-0">
+      <div className="border-b border-zinc-900 p-5">
+        {/* Top row: icon + status badge */}
+        <div className="flex items-center justify-between gap-2">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-zinc-950 border border-zinc-850 flex-shrink-0">
             {renderAgentIcon()}
           </div>
-          <div className="min-w-0">
-            <h3 className="font-bold text-white text-xs sm:text-sm truncate">{title}</h3>
-            <span className="text-[10px] font-mono text-zinc-500 block truncate mt-0.5">
-              {role}
-            </span>
-          </div>
+          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase flex-shrink-0 whitespace-nowrap ${statusBadge}`}>
+            {status}
+          </span>
         </div>
 
-        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase flex-shrink-0 ${statusBadge}`}>
-          {status}
-        </span>
+        {/* Full-width title + role */}
+        <div className="mt-3 min-w-0">
+          <h3 className="font-bold text-white text-sm leading-tight break-words">{title}</h3>
+          <span className="text-[10px] font-mono text-zinc-500 block leading-tight mt-1 break-words">
+            {role}
+          </span>
+        </div>
       </div>
 
       {/* Card Body - KPI Metrics display */}

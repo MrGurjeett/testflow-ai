@@ -41,7 +41,7 @@ export default function Sidebar({ isOpen, onClose, activeItem = 'dashboard' }: S
       <div className="flex items-center justify-between px-2 mb-8">
         <div className="flex items-center space-x-2.5">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-500 shadow-md shadow-indigo-500/15">
-            <Zap className="h-5 w-5 text-white" />
+            <Zap className="h-5 w-5 text-[#fff]" />
           </div>
           <div>
             <span className="font-bold text-white tracking-tight text-sm">TestFlow AI</span>

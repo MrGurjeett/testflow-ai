@@ -5,11 +5,77 @@
   --foreground: #f4f4f5; /* Zinc 100 */
 }
 
+/*
+ * Custom design tokens. These are referenced throughout the components
+ * (text-2xs / text-3xs / text-4xs, zinc-850, zinc-350, indigo-550, cyan-450)
+ * but were never defined, so they previously produced NO css — which is why
+ * "tiny" text rendered at the default 16px and overflowed its containers.
+ *
+ * NOTE: a non-inline @theme block is used on purpose so the colors compile to
+ * `var(--color-*)` references and can be overridden for light mode below.
+ */
+@theme {
+  /* Font sizes (with sensible line-heights) */
+  --text-2xs: 0.6875rem; /* 11px */
+  --text-2xs--line-height: 1rem;
+  --text-3xs: 0.625rem; /* 10px */
+  --text-3xs--line-height: 0.875rem;
+  --text-4xs: 0.5625rem; /* 9px */
+  --text-4xs--line-height: 0.75rem;
+
+  /* Custom zinc steps used for borders / muted text */
+  --color-zinc-350: #bcbcc2;
+  --color-zinc-850: #202023;
+
+  /* Custom accent steps used by the gradient hover states */
+  --color-indigo-550: #585bee;
+  --color-cyan-450: #15c4e1;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+}
+
+/*
+ * LIGHT THEME
+ * --------------------------------------------------------------------------
+ * The UI is built entirely on hardcoded `zinc-*` / `white` utilities with no
+ * `dark:` variants. Rather than rewrite every component, we flip the meaning
+ * of the zinc ramp (and white) when `<html>` has the `.light` class.
+ *
+ * In the dark UI: surfaces use 950/900, text uses white/100/200/300, muted
+ * text uses 400/500/600, borders use 800/850/900. For light mode we invert
+ * the ramp so the same utilities map to a readable light palette.
+ *
+ * These rules are intentionally UNLAYERED so they win over Tailwind's layered
+ * @theme variables regardless of specificity.
+ */
+:root.light {
+  --background: #ffffff;
+  --foreground: #18181b;
+
+  /* white -> near-black so heading `text-white` stays readable on light
+     surfaces. The few `text-white` elements that sit on saturated accent
+     backgrounds are pinned to a literal #fff in the markup instead. */
+  --color-white: #18181b;
+
+  /* Inverted zinc ramp */
+  --color-zinc-50: #18181b;
+  --color-zinc-100: #18181b; /* primary text */
+  --color-zinc-200: #27272a; /* strong value text */
+  --color-zinc-300: #3f3f46; /* secondary text */
+  --color-zinc-350: #52525b;
+  --color-zinc-400: #52525b; /* muted text */
+  --color-zinc-500: #71717a; /* muted label text */
+  --color-zinc-600: #a1a1aa; /* faint / decorative */
+  --color-zinc-700: #d4d4d8; /* subtle borders */
+  --color-zinc-800: #e4e4e7; /* borders */
+  --color-zinc-850: #e8e8eb; /* borders / active tab bg */
+  --color-zinc-900: #f4f4f5; /* raised surfaces */
+  --color-zinc-950: #ffffff; /* page background */
 }
 
 body {
@@ -26,14 +92,14 @@ body {
     height: 6px;
   }
   .scrollbar-thin::-webkit-scrollbar-track {
-    background: #09090b;
+    background: var(--color-zinc-950);
   }
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background: #27272a;
+    background: var(--color-zinc-800);
     border-radius: 9999px;
   }
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    background: #3f3f46;
+    background: var(--color-zinc-700);
   }
 }
 
@@ -55,7 +121,7 @@ body {
 /* Grid overlay pattern */
 .bg-grid-pattern {
   background-size: 40px 40px;
-  background-image: 
+  background-image:
     linear-gradient(to right, rgba(63, 63, 70, 0.05) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(63, 63, 70, 0.05) 1px, transparent 1px);
 }

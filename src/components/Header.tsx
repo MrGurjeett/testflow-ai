@@ -111,7 +111,7 @@ export default function Header({ onMenuClick, theme = 'dark', onThemeToggle }: H
             type="button"
             className="flex items-center space-x-2.5 p-1 rounded-full bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 hover:border-zinc-700 transition-all text-left"
           >
-            <div className="flex h-7.5 w-7.5 items-center justify-center rounded-full bg-indigo-500 text-white font-bold text-xs uppercase shadow-sm shadow-indigo-500/10">
+            <div className="flex h-7.5 w-7.5 items-center justify-center rounded-full bg-indigo-500 text-[#fff] font-bold text-xs uppercase shadow-sm shadow-indigo-500/10">
               <User className="h-4 w-4" />
             </div>
             <div className="hidden sm:block pr-2.5">
