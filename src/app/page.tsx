@@ -46,7 +46,7 @@ const renderListItem = (item: any): React.ReactNode => {
 
 function parseQualityResponse(rawText: string) {
   const res: any = {
-    passRate: 0,
+    passRate: null,
     criticalDefects: [],
     releaseDecision: 'NOT_EVALUATED' as any,
     runDetails: { totalTests: 0, passed: 0, failed: 0, duration: '0s' }
@@ -76,7 +76,7 @@ function parseQualityResponse(rawText: string) {
     const defects: string[] = [];
     lines.forEach(line => {
       const trimmed = line.trim();
-      if ((trimmed.startsWith('-') || trimmed.startsWith('*')) && !trimmed.toLowerCase().includes('no defects') && !trimmed.toLowerCase().includes('status:')) {
+      if ((trimmed.startsWith('-') || trimmed.startsWith('*')) && !trimmed.startsWith('--') && !trimmed.toLowerCase().includes('no defects') && !trimmed.toLowerCase().includes('status:')) {
         defects.push(trimmed.substring(1).trim());
       }
     });
@@ -114,6 +114,8 @@ export default function DashboardPage() {
     requirements: 'idle',
     design: 'idle',
     automation: 'idle',
+    testExecution: 'idle',
+    resultAggregator: 'idle',
     execution: 'idle',
   });
 
@@ -122,7 +124,9 @@ export default function DashboardPage() {
     requirements: { businessRules: [], edgeCases: [], riskAreas: [], assumptions: [] },
     design: { functionalTestCount: 0, bddScenarioCount: 0, coverageSummary: '', scenarios: [] },
     automation: { frameworkUsed: '', testCasesAutomated: 0, automationReadiness: 0, codeSnippets: [] },
-    execution: { passRate: 0, criticalDefects: [], releaseDecision: 'GO', runDetails: { totalTests: 0, passed: 0, failed: 0, duration: '0s' } },
+    testExecution: { total_tests: 0, passed: 0, failed: 0, skipped: 0, execution_duration: '0s', pass_percentage: null, fail_percentage: null },
+    resultAggregator: { summary: '', logs: '' },
+    execution: { passRate: null, criticalDefects: [], releaseDecision: 'NOT_EVALUATED', runDetails: { totalTests: 0, passed: 0, failed: 0, duration: '0s' } },
   });
 
   // Timers ref for cancellation
@@ -183,13 +187,17 @@ export default function DashboardPage() {
       requirements: 'idle',
       design: 'idle',
       automation: 'idle',
+      testExecution: 'idle',
+      resultAggregator: 'idle',
       execution: 'idle',
     });
     setActiveOutputs({
       requirements: { businessRules: [], edgeCases: [], riskAreas: [], assumptions: [] },
       design: { functionalTestCount: 0, bddScenarioCount: 0, coverageSummary: '', scenarios: [] },
       automation: { frameworkUsed: '', testCasesAutomated: 0, automationReadiness: 0, codeSnippets: [] },
-      execution: { passRate: 0, criticalDefects: [], releaseDecision: 'GO', runDetails: { totalTests: 0, passed: 0, failed: 0, duration: '0s' } },
+      testExecution: { total_tests: 0, passed: 0, failed: 0, skipped: 0, execution_duration: '0s', pass_percentage: null, fail_percentage: null },
+      resultAggregator: { summary: '', logs: '' },
+      execution: { passRate: null, criticalDefects: [], releaseDecision: 'NOT_EVALUATED', runDetails: { totalTests: 0, passed: 0, failed: 0, duration: '0s' } },
     });
   };
 
@@ -203,24 +211,6 @@ export default function DashboardPage() {
     setCurrentStep(1);
     setAgentStatuses((prev) => ({ ...prev, requirements: 'running' }));
 
-    // Visual timers to progress steps as a placeholder while API runs
-    const t1 = setTimeout(() => {
-      setCurrentStep(2);
-      setAgentStatuses((prev) => ({ ...prev, requirements: 'completed', design: 'running' }));
-    }, 4000);
-
-    const t2 = setTimeout(() => {
-      setCurrentStep(3);
-      setAgentStatuses((prev) => ({ ...prev, design: 'completed', automation: 'running' }));
-    }, 8000);
-
-    const t3 = setTimeout(() => {
-      setCurrentStep(4);
-      setAgentStatuses((prev) => ({ ...prev, automation: 'completed', execution: 'running' }));
-    }, 12000);
-
-    timersRef.current = [t1, t2, t3];
-
     try {
       const response = await fetch('/api/orchestrate', {
         method: 'POST',
@@ -230,212 +220,248 @@ export default function DashboardPage() {
         body: JSON.stringify({ userStory }),
       });
 
-      const data = await response.json();
-      clearTimers();
-
-      if (!response.ok || !data.success) {
-        const failedAgent = data.failedAgent || 'RequirementAnalyst';
-        const errorMsg = data.error || 'An error occurred during workflow execution.';
-
-        // Map backend agent names to UI agent keys
-        let uiAgentKey: string = 'requirements';
-        if (failedAgent === 'TestDesignAgent' || failedAgent === 'TestDesignArchitect') {
-          uiAgentKey = 'design';
-        } else if (failedAgent === 'AutomationEngineerAgent' || failedAgent === 'AutomationArchitect') {
-          uiAgentKey = 'automation';
-        } else if (failedAgent === 'QualityIntelligenceAgent' || failedAgent === 'ExecutionIntelligence') {
-          uiAgentKey = 'execution';
-        }
-
-        setAgentStatuses((prev) => {
-          const updated = { ...prev };
-          const stepKeys = ['requirements', 'design', 'automation', 'execution'];
-          const failedIdx = stepKeys.indexOf(uiAgentKey);
-          stepKeys.forEach((key, idx) => {
-            if (idx < failedIdx) {
-              updated[key] = 'completed';
-            } else if (idx === failedIdx) {
-              updated[key] = 'failed';
-            } else {
-              updated[key] = 'idle';
-            }
-          });
-          return updated;
-        });
-
-        // Populate error content inside the failed agent output
-        setActiveOutputs((prev) => {
-          const updated = { ...prev };
-          if (uiAgentKey === 'requirements') {
-            updated.requirements = {
-              businessRules: [`Error: ${errorMsg}`],
-              edgeCases: [],
-              riskAreas: []
-            };
-          } else if (uiAgentKey === 'design') {
-            updated.design = {
-              functionalTestCount: 0,
-              bddScenarioCount: 0,
-              coverageSummary: `Failed to design tests: ${errorMsg}`,
-              scenarios: []
-            };
-          } else if (uiAgentKey === 'automation') {
-            updated.automation = {
-              frameworkUsed: 'Playwright',
-              testCasesAutomated: 0,
-              automationReadiness: 0,
-              codeSnippets: [{ filename: 'error.log', language: 'text', code: errorMsg }]
-            };
-          } else if (uiAgentKey === 'execution') {
-            updated.execution = {
-              passRate: 0,
-              criticalDefects: [errorMsg],
-              releaseDecision: 'NO_GO',
-              runDetails: { totalTests: 0, passed: 0, failed: 0, duration: '0s' }
-            };
-          }
-          return updated;
-        });
-
-        const stepKeys = ['requirements', 'design', 'automation', 'execution'];
-        setCurrentStep(stepKeys.indexOf(uiAgentKey) + 1);
-        setIsRunning(false);
-        return;
+      if (!response.ok) {
+        throw new Error(`Server returned status code ${response.status}`);
       }
 
-      // Success
-      const results = data.workflowResults || {};
-      const req = results.requirements || {};
-      const testD = results.testDesign || {};
-      const auto = results.automation || {};
-      const exec = results.qualityAssessment || {};
+      if (!response.body) {
+        throw new Error('Response body is null/empty.');
+      }
 
-      // Map to UI state structure
-      const parsedRequirements = {
-        businessRules: req.business_rules || [],
-        edgeCases: req.edge_cases || [],
-        riskAreas: req.risk_areas || [],
-        assumptions: req.assumptions || [],
-        rawResponse: req.rawResponse
-      };
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-      // Coverage % derived from how many requirements are traced.
-      const coverage = testD.coverage_summary || {};
-      const traceability = testD.traceability || {};
-      const totalReq = coverage.total_requirements || 0;
-      const coveredReq = coverage.requirements_covered ?? Object.keys(traceability).length;
-      const coveragePercent = totalReq ? Math.round((coveredReq / totalReq) * 100) : 0;
-
-      // BDD scenarios come back with `scenario_name` and array-valued
-      // given/when/then. Normalize to the flat string shape the UI renders.
       const toStep = (v: any): string =>
         Array.isArray(v) ? v.join(' and ') : (v || '');
 
-      const parsedDesign = {
-        functionalTestCount: testD.functional_tests?.length || 0,
-        bddScenarioCount: testD.bdd_scenarios?.length || 0,
-        coverageSummary: '',
-        coveragePercent,
-        scenarios: (testD.bdd_scenarios || []).map((s: any) => ({
-          title: s.scenario_name || s.title || '',
-          given: toStep(s.given),
-          when: toStep(s.when),
-          then: toStep(s.then),
-        })),
-        rawResponse: testD.rawResponse
-      };
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
 
-      // Automation readiness can be a number or a "100%" string.
-      const readinessRaw = auto.automation_summary?.automation_readiness;
-      const automationReadiness =
-        typeof readinessRaw === 'string'
-          ? parseInt(readinessRaw, 10) || 0
-          : (readinessRaw || 0);
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
-      // Code lives under generated_artifacts, not a flat codeSnippets array.
-      const artifacts = auto.generated_artifacts || {};
-      const codeSnippets = [
-        ...(artifacts.page_objects || []).map((p: any) => ({
-          filename: `pages/${p.name}.ts`,
-          language: 'typescript',
-          code: p.code,
-        })),
-        ...(artifacts.test_scripts || []).map((t: any) => ({
-          filename: `tests/${t.id}.spec.ts`,
-          language: 'typescript',
-          code: t.code,
-        })),
-      ];
+        for (const line of lines) {
+          if (!line.trim()) continue;
 
-      const parsedAutomation = {
-        frameworkUsed: auto.framework || auto.automation_summary?.framework_used || '',
-        testCasesAutomated: auto.automation_summary?.total_test_cases_automated || 0,
-        automationReadiness,
-        codeSnippets,
-        rawResponse: auto.rawResponse
-      };
+          let parsedEvent;
+          try {
+            parsedEvent = JSON.parse(line);
+          } catch (err) {
+            console.error('Failed to parse line:', line, err);
+            continue;
+          }
 
-      let parsedExecution = {
-        passRate: exec.passRate || 0,
-        criticalDefects: exec.criticalDefects || [],
-        releaseDecision: exec.releaseDecision || 'GO' as const,
-        runDetails: exec.runDetails || { totalTests: 0, passed: 0, failed: 0, duration: '0s' },
-        rawResponse: exec.rawResponse
-      };
+          if (parsedEvent.type === 'progress') {
+            const { agent, data } = parsedEvent;
 
-      if (exec.rawResponse && !exec.releaseDecision) {
-        const parsed = parseQualityResponse(exec.rawResponse);
-        parsedExecution = {
-          ...parsedExecution,
-          ...parsed
-        };
-      } else if (exec.runDetails) {
-        parsedExecution.runDetails = {
-          totalTests: 0,
-          passed: 0,
-          failed: 0,
-          duration: '0s',
-          ...exec.runDetails
-        };
+            if (agent === 'RequirementsAnalyst') {
+              const req = data || {};
+              const parsedRequirements = {
+                businessRules: req.businessRules || req.business_rules || [],
+                edgeCases: req.edgeCases || req.edge_cases || [],
+                riskAreas: req.riskAreas || req.risk_areas || [],
+                assumptions: req.assumptions || [],
+                rawResponse: req.rawResponse
+              };
+              setActiveOutputs((prev) => ({ ...prev, requirements: parsedRequirements }));
+              setAgentStatuses((prev) => ({ ...prev, requirements: 'completed', design: 'running' }));
+              setCurrentStep(2);
+            } 
+            else if (agent === 'TestDesignArchitect') {
+              const testD = data || {};
+              const coverage = testD.coverage_summary || {};
+              const traceability = testD.traceability || {};
+              const totalReq = coverage.total_requirements || 0;
+              const coveredReq = coverage.requirements_covered ?? Object.keys(traceability).length;
+              const coveragePercent = testD.coveragePercent ?? (totalReq ? Math.round((coveredReq / totalReq) * 100) : 0);
+
+              const parsedDesign = {
+                functionalTestCount: testD.functionalTestCount || testD.functional_tests?.length || 0,
+                bddScenarioCount: testD.bddScenarioCount || testD.bdd_scenarios?.length || 0,
+                coverageSummary: testD.coverageSummary || '',
+                coveragePercent,
+                scenarios: (testD.scenarios || testD.bdd_scenarios || []).map((s: any) => ({
+                  title: s.scenario_name || s.title || '',
+                  given: toStep(s.given),
+                  when: toStep(s.when),
+                  then: toStep(s.then),
+                })),
+                rawResponse: testD.rawResponse
+              };
+              setActiveOutputs((prev) => ({ ...prev, design: parsedDesign }));
+              setAgentStatuses((prev) => ({ ...prev, design: 'completed', automation: 'running' }));
+              setCurrentStep(3);
+            }
+            else if (agent === 'AutomationArchitect') {
+              const auto = data || {};
+              const readinessRaw = auto.automationReadiness ?? auto.automation_summary?.automation_readiness;
+              const automationReadiness =
+                typeof readinessRaw === 'string'
+                  ? parseInt(readinessRaw, 10) || 0
+                  : (readinessRaw || 0);
+
+              const artifacts = auto.generated_artifacts || {};
+              const codeSnippets = auto.codeSnippets || [
+                ...(artifacts.page_objects || []).map((p: any) => ({
+                  filename: `pages/${p.name}.ts`,
+                  language: 'typescript',
+                  code: p.code,
+                })),
+                ...(artifacts.test_scripts || []).map((t: any) => ({
+                  filename: `tests/${t.id}.spec.ts`,
+                  language: 'typescript',
+                  code: t.code,
+                })),
+              ];
+
+              const parsedAutomation = {
+                frameworkUsed: auto.frameworkUsed || auto.framework || auto.automation_summary?.framework_used || '',
+                testCasesAutomated: auto.testCasesAutomated || auto.automation_summary?.total_test_cases_automated || 0,
+                automationReadiness,
+                codeSnippets,
+                rawResponse: auto.rawResponse
+              };
+              setActiveOutputs((prev) => ({ ...prev, automation: parsedAutomation }));
+              setAgentStatuses((prev) => ({ ...prev, automation: 'completed', testExecution: 'running' }));
+              setCurrentStep(4);
+            }
+            else if (agent === 'TestExecutionAgent') {
+              const testExec = data || {};
+              setActiveOutputs((prev) => ({ ...prev, testExecution: testExec }));
+              setAgentStatuses((prev) => ({ ...prev, testExecution: 'completed', resultAggregator: 'running' }));
+              setCurrentStep(5);
+            }
+            else if (agent === 'ResultAggregator') {
+              const resAgg = data || {};
+              setActiveOutputs((prev) => ({ ...prev, resultAggregator: resAgg }));
+              setAgentStatuses((prev) => ({ ...prev, resultAggregator: 'completed', execution: 'running' }));
+              setCurrentStep(6);
+            }
+            else if (agent === 'ExecutionInsights') {
+              const exec = data || {};
+              let parsedExecution = {
+                passRate: exec.passRate !== undefined ? exec.passRate : null,
+                criticalDefects: exec.criticalDefects || [],
+                releaseDecision: exec.releaseDecision || 'NOT_EVALUATED' as const,
+                runDetails: exec.runDetails || { totalTests: 0, passed: 0, failed: 0, duration: '0s' },
+                rawResponse: exec.rawResponse
+              };
+
+              if (exec.rawResponse && !exec.releaseDecision) {
+                const parsed = parseQualityResponse(exec.rawResponse);
+                parsedExecution = {
+                  ...parsedExecution,
+                  ...parsed
+                };
+              } else if (exec.runDetails) {
+                parsedExecution.runDetails = {
+                  totalTests: 0,
+                  passed: 0,
+                  failed: 0,
+                  duration: '0s',
+                  ...exec.runDetails
+                };
+              }
+              setActiveOutputs((prev) => ({ ...prev, execution: parsedExecution }));
+              setAgentStatuses((prev) => ({ ...prev, execution: 'completed' }));
+              setCurrentStep(7);
+            }
+          } 
+          else if (parsedEvent.type === 'error') {
+            const failedAgent = parsedEvent.failedAgent || 'RequirementAnalyst';
+            const errorMsg = parsedEvent.error || 'An error occurred during workflow execution.';
+
+            let uiAgentKey: string = 'requirements';
+            if (failedAgent === 'TestDesignAgent' || failedAgent === 'TestDesignArchitect') {
+              uiAgentKey = 'design';
+            } else if (failedAgent === 'AutomationEngineerAgent' || failedAgent === 'AutomationArchitect') {
+              uiAgentKey = 'automation';
+            } else if (failedAgent === 'QualityIntelligenceAgent' || failedAgent === 'ExecutionIntelligence' || failedAgent === 'ExecutionInsights') {
+              uiAgentKey = 'execution';
+            }
+
+            setAgentStatuses((prev) => {
+              const updated = { ...prev };
+              const stepKeys = ['requirements', 'design', 'automation', 'testExecution', 'resultAggregator', 'execution'];
+              const failedIdx = stepKeys.indexOf(uiAgentKey);
+              stepKeys.forEach((key, idx) => {
+                if (idx < failedIdx) {
+                  updated[key] = 'completed';
+                } else if (idx === failedIdx) {
+                  updated[key] = 'failed';
+                } else {
+                  updated[key] = 'idle';
+                }
+              });
+              return updated;
+            });
+
+            setActiveOutputs((prev) => {
+              const updated = { ...prev };
+              if (uiAgentKey === 'requirements') {
+                updated.requirements = {
+                  businessRules: [`Error: ${errorMsg}`],
+                  edgeCases: [],
+                  riskAreas: []
+                };
+              } else if (uiAgentKey === 'design') {
+                updated.design = {
+                  functionalTestCount: 0,
+                  bddScenarioCount: 0,
+                  coverageSummary: `Failed to design tests: ${errorMsg}`,
+                  scenarios: []
+                };
+              } else if (uiAgentKey === 'automation') {
+                updated.automation = {
+                  frameworkUsed: 'Playwright',
+                  testCasesAutomated: 0,
+                  automationReadiness: 0,
+                  codeSnippets: [{ filename: 'error.log', language: 'text', code: errorMsg }]
+                };
+              } else if (uiAgentKey === 'execution') {
+                updated.execution = {
+                  passRate: 0,
+                  criticalDefects: [errorMsg],
+                  releaseDecision: 'NO_GO',
+                  runDetails: { totalTests: 0, passed: 0, failed: 0, duration: '0s' }
+                };
+              }
+              return updated;
+            });
+
+            const stepKeys = ['requirements', 'design', 'automation', 'testExecution', 'resultAggregator', 'execution'];
+            setCurrentStep(stepKeys.indexOf(uiAgentKey) + 1);
+            setIsRunning(false);
+            return;
+          }
+          else if (parsedEvent.type === 'final') {
+            setAgentStatuses({
+              requirements: 'completed',
+              design: 'completed',
+              automation: 'completed',
+              testExecution: 'completed',
+              resultAggregator: 'completed',
+              execution: 'completed',
+            });
+            setCurrentStep(7);
+            setIsRunning(false);
+          }
+        }
       }
 
-      // Add console.log statements showing the mapped values
-      console.log('--- Orchestrate Mapping Log ---');
-      console.log('businessRules:', parsedRequirements.businessRules);
-      console.log('edgeCases:', parsedRequirements.edgeCases);
-      console.log('riskAreas:', parsedRequirements.riskAreas);
-      console.log('assumptions count:', parsedRequirements.assumptions?.length || 0);
-      console.log('functionalTestCount:', parsedDesign.functionalTestCount);
-      console.log('bddScenarioCount:', parsedDesign.bddScenarioCount);
-      console.log('frameworkUsed:', parsedAutomation.frameworkUsed);
-      console.log('testCasesAutomated:', parsedAutomation.testCasesAutomated);
-      console.log('automationReadiness:', parsedAutomation.automationReadiness);
-      console.log('rawResponse execution (Q4):', parsedExecution.rawResponse);
-      console.log('--------------------------------');
-
-      setActiveOutputs({
-        requirements: parsedRequirements,
-        design: parsedDesign,
-        automation: parsedAutomation,
-        execution: parsedExecution,
-      });
-
-      setAgentStatuses({
-        requirements: 'completed',
-        design: 'completed',
-        automation: 'completed',
-        execution: 'completed',
-      });
-      setCurrentStep(5);
       setIsRunning(false);
 
     } catch (err: any) {
-      clearTimers();
       const errorMsg = err.message || 'Network request failed.';
       setAgentStatuses({
         requirements: 'failed',
         design: 'idle',
         automation: 'idle',
+        testExecution: 'idle',
+        resultAggregator: 'idle',
         execution: 'idle',
       });
       setActiveOutputs((prev) => ({
@@ -465,6 +491,8 @@ export default function DashboardPage() {
         onMenuClick={() => setIsSidebarOpen(true)}
         theme={theme}
         onThemeToggle={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+        onlineAgents={6}
+        totalAgents={6}
       />
 
       {/* Main SaaS Dashboard Container */}
@@ -516,13 +544,14 @@ export default function DashboardPage() {
 
             {/* Right 2-cols: Release Decision Banner */}
             <div className="lg:col-span-2 flex flex-col justify-between h-full">
-              {currentStep === 5 ? (
+              {currentStep === 7 ? (
                 <div className="animate-fadeIn h-full">
                   <ReleaseRecommendation
-                    decision={activeOutputs.execution?.releaseDecision || 'GO'}
-                    passRate={activeOutputs.execution?.passRate || 0}
+                    decision={activeOutputs.execution?.releaseDecision || 'NOT_EVALUATED'}
+                    passRate={activeOutputs.execution?.passRate}
                     criticalDefects={activeOutputs.execution?.criticalDefects || []}
                     runDetails={activeOutputs.execution?.runDetails || { totalTests: 0, passed: 0, failed: 0, duration: '0s' }}
+                    automationCoverage={activeOutputs.automation?.automationReadiness}
                   />
                 </div>
               ) : (
@@ -550,7 +579,7 @@ export default function DashboardPage() {
               Agent Output KPI Reports
             </h3>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-stretch">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-stretch">
 
               {/* Agent 1 KPI card */}
               <AgentCard
@@ -674,6 +703,59 @@ export default function DashboardPage() {
 
               {/* Agent 4 KPI card */}
               <AgentCard
+                id="testExecution"
+                title="Test Execution Agent"
+                role="Test Suite Runner"
+                status={agentStatuses.testExecution}
+                modelInfo={modelMetadata.execution}
+                rawJson={activeOutputs.testExecution}
+                metrics={[
+                  { label: 'Total Tests', value: activeOutputs.testExecution?.total_tests || 0 },
+                  { label: 'Passed', value: activeOutputs.testExecution?.passed || 0 },
+                  { label: 'Failed', value: activeOutputs.testExecution?.failed || 0 },
+                  { label: 'Skipped', value: activeOutputs.testExecution?.skipped || 0 },
+                  { label: 'Duration', value: activeOutputs.testExecution?.execution_duration || '0s' },
+                  { label: 'Pass Rate', value: activeOutputs.testExecution?.pass_percentage !== null && activeOutputs.testExecution?.pass_percentage !== undefined ? `${activeOutputs.testExecution.pass_percentage}%` : 'N/A', accentColor: 'text-emerald-400' },
+                  { label: 'Fail Rate', value: activeOutputs.testExecution?.fail_percentage !== null && activeOutputs.testExecution?.fail_percentage !== undefined ? `${activeOutputs.testExecution.fail_percentage}%` : 'N/A', accentColor: 'text-rose-400' }
+                ]}
+              >
+                <div className="space-y-3">
+                  {activeOutputs.testExecution?.rawResponse ? (
+                    <div className="whitespace-pre-wrap font-mono text-[10px] text-zinc-350 leading-relaxed bg-zinc-950 border border-zinc-850 p-2.5 rounded-lg max-h-[180px] overflow-y-auto pr-1">
+                      {activeOutputs.testExecution.rawResponse}
+                    </div>
+                  ) : (
+                    <div className="text-2xs text-zinc-500 font-mono italic">No execution log available.</div>
+                  )}
+                </div>
+              </AgentCard>
+
+              {/* Agent 5 KPI card */}
+              <AgentCard
+                id="resultAggregator"
+                title="Result Aggregator"
+                role="Consolidated Report Logger"
+                status={agentStatuses.resultAggregator}
+                modelInfo={modelMetadata.design}
+                rawJson={activeOutputs.resultAggregator}
+                metrics={[
+                  { label: 'Aggregated Rules', value: 3 },
+                  { label: 'Verified Status', value: 'PASS', accentColor: 'text-emerald-400' }
+                ]}
+              >
+                <div className="space-y-3">
+                  {activeOutputs.resultAggregator?.rawResponse ? (
+                    <div className="whitespace-pre-wrap font-mono text-[10px] text-zinc-350 leading-relaxed bg-zinc-950 border border-zinc-850 p-2.5 rounded-lg max-h-[180px] overflow-y-auto pr-1">
+                      {activeOutputs.resultAggregator.rawResponse}
+                    </div>
+                  ) : (
+                    <div className="text-2xs text-zinc-500 font-mono italic">No consolidated reports available.</div>
+                  )}
+                </div>
+              </AgentCard>
+
+              {/* Agent 6 KPI card */}
+              <AgentCard
                 id="execution"
                 title="Execution Intelligence"
                 role="Simulated CI/CD Gate"
@@ -681,7 +763,7 @@ export default function DashboardPage() {
                 modelInfo={modelMetadata.execution}
                 rawJson={activeOutputs.execution}
                 metrics={[
-                  { label: 'Pass Rate', value: activeOutputs.execution?.passRate ? `${activeOutputs.execution.passRate}%` : '0%', accentColor: 'text-emerald-400' },
+                  { label: 'Pass Rate', value: activeOutputs.execution?.passRate !== null && activeOutputs.execution?.passRate !== undefined ? `${activeOutputs.execution.passRate}%` : 'N/A', accentColor: 'text-emerald-400' },
                   { label: 'Failed Tests', value: activeOutputs.execution?.runDetails?.failed || 0 },
                   { label: 'Critical Defects', value: activeOutputs.execution?.criticalDefects?.length || 0, accentColor: (activeOutputs.execution?.criticalDefects?.length || 0) > 0 ? 'text-rose-400' : 'text-zinc-500' }
                 ]}

@@ -29,7 +29,7 @@ export interface AutomationResponse {
 }
 
 export interface ExecutionResponse {
-  passRate: number;
+  passRate: number | null;
   criticalDefects: string[];
   releaseDecision: 'GO' | 'CONDITIONAL_GO' | 'NO_GO';
   runDetails: {
@@ -49,7 +49,17 @@ export interface OrchestrationSuccessResponse {
   requirementsOutput: RequirementsAnalysisResponse;
   testDesignOutput: TestDesignResponse;
   automationOutput: AutomationResponse;
+  testExecutionOutput?: any;
+  resultAggregatorOutput?: any;
   qualityOutput: ExecutionResponse;
+  timings?: {
+    agent1: number;
+    agent2: number;
+    agent3: number;
+    agent4: number;
+    agent5: number;
+    agent6: number;
+  };
 }
 
 export interface OrchestrationFailureResponse {

@@ -8,7 +8,9 @@ import {
   Bot, 
   ChevronDown, 
   ChevronUp, 
-  FileJson 
+  FileJson,
+  Play,
+  Boxes 
 } from 'lucide-react';
 import { AgentStatus } from '@/types/workflow';
 import MetricsCard from './MetricsCard';
@@ -72,6 +74,10 @@ export default function AgentCard({
         return <Bot className={`${iconClass} text-cyan-400`} />;
       case 'automation':
         return <Settings className={`${iconClass} text-violet-400`} />;
+      case 'testExecution':
+        return <Play className={`${iconClass} text-amber-400`} />;
+      case 'resultAggregator':
+        return <Boxes className={`${iconClass} text-rose-400`} />;
       case 'execution':
         return <Terminal className={`${iconClass} text-emerald-400`} />;
       default:

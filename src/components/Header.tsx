@@ -17,9 +17,17 @@ interface HeaderProps {
   onMenuClick: () => void;
   theme?: 'dark' | 'light';
   onThemeToggle?: () => void;
+  onlineAgents?: number;
+  totalAgents?: number;
 }
 
-export default function Header({ onMenuClick, theme = 'dark', onThemeToggle }: HeaderProps) {
+export default function Header({ 
+  onMenuClick, 
+  theme = 'dark', 
+  onThemeToggle,
+  onlineAgents = 6,
+  totalAgents = 6
+}: HeaderProps) {
   return (
     <header className="border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-40 lg:pl-60">
       <div className="flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
@@ -71,7 +79,7 @@ export default function Header({ onMenuClick, theme = 'dark', onThemeToggle }: H
           <div className="flex items-center space-x-2 rounded-lg bg-zinc-900/30 border border-zinc-850 px-2.5 py-1 text-2xs font-medium text-zinc-400">
             <Layers className="h-3.5 w-3.5 text-violet-400" />
             <span className="text-zinc-500">Agents:</span>
-            <span className="text-zinc-300 font-semibold">4 / 4 Online</span>
+            <span className="text-zinc-300 font-semibold">{onlineAgents} / {totalAgents} Online</span>
           </div>
         </div>
 

@@ -9,7 +9,9 @@ import {
   CheckCircle2, 
   Loader2, 
   ArrowRight, 
-  ArrowDown 
+  ArrowDown,
+  Play,
+  Boxes
 } from 'lucide-react';
 import { AgentStatus } from '@/types/workflow';
 
@@ -44,6 +46,20 @@ const PIPELINE_STEPS: PipelineStep[] = [
     color: 'violet',
   },
   {
+    id: 'testExecution',
+    name: 'Test Execution Agent',
+    description: 'Runs Playwright/API test suites.',
+    icon: Play,
+    color: 'amber',
+  },
+  {
+    id: 'resultAggregator',
+    name: 'Result Aggregator',
+    description: 'Consolidates runner output logs.',
+    icon: Boxes,
+    color: 'rose',
+  },
+  {
     id: 'execution',
     name: 'Execution Intelligence',
     description: 'Simulates runner and verifies gates.',
@@ -53,7 +69,7 @@ const PIPELINE_STEPS: PipelineStep[] = [
 ];
 
 interface AgentPipelineProps {
-  currentStep: number; // 1 to 4, 0 = idle, 5 = completed
+  currentStep: number; // 1 to 6, 0 = idle, 7 = completed
   statuses: Record<string, AgentStatus>;
 }
 

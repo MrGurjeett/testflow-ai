@@ -35,7 +35,7 @@ export interface AutomationOutput {
 }
 
 export interface ExecutionOutput {
-  passRate: number; // Percentage
+  passRate: number | null; // Percentage
   criticalDefects: string[];
   releaseDecision: ReleaseDecisionType;
   runDetails: {
@@ -50,6 +50,8 @@ export interface AgentOutputs {
   requirements: RequirementsOutput;
   design: TestDesignOutput;
   automation: AutomationOutput;
+  testExecution?: any;
+  resultAggregator?: any;
   execution: ExecutionOutput;
 }
 

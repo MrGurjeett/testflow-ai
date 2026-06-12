@@ -16,7 +16,7 @@ import { ReleaseDecisionType } from '@/types/workflow';
 
 interface ReleaseRecommendationProps {
   decision: ReleaseDecisionType;
-  passRate: number;
+  passRate: number | null;
   criticalDefects: string[];
   runDetails: {
     totalTests: number;
@@ -24,6 +24,7 @@ interface ReleaseRecommendationProps {
     failed: number;
     duration: string;
   };
+  automationCoverage?: number;
 }
 
 export default function ReleaseRecommendation({
@@ -31,6 +32,7 @@ export default function ReleaseRecommendation({
   passRate,
   criticalDefects,
   runDetails,
+  automationCoverage = 0,
 }: ReleaseRecommendationProps) {
   
   // Set up layout variables based on gate decision
@@ -79,7 +81,8 @@ export default function ReleaseRecommendation({
   // Circular progress calculations
   const radius = 32;
   const strokeDasharray = 2 * Math.PI * radius;
-  const strokeDashoffset = strokeDasharray - (passRate / 100) * strokeDasharray;
+  const displayPassRate = passRate === null || passRate === undefined ? 0 : passRate;
+  const strokeDashoffset = strokeDasharray - (displayPassRate / 100) * strokeDasharray;
 
   return (
     <div className={`rounded-2xl border p-6 transition-all duration-500 ${cardGlow}`}>
@@ -148,7 +151,9 @@ export default function ReleaseRecommendation({
               />
             </svg>
             <div className="absolute text-center">
-              <span className="text-sm font-extrabold text-white font-mono block leading-none">{passRate}%</span>
+              <span className="text-sm font-extrabold text-white font-mono block leading-none">
+                {passRate === null || passRate === undefined ? 'N/A' : `${passRate}%`}
+              </span>
               <span className="text-[8px] text-zinc-500 uppercase font-semibold">Pass Rate</span>
             </div>
           </div>
@@ -205,26 +210,46 @@ export default function ReleaseRecommendation({
         <div className="rounded-lg bg-zinc-950/40 border border-zinc-850 p-2.5 flex items-center justify-between text-2xs">
           <span className="text-zinc-500">Security Scans</span>
           <span className={`font-bold flex items-center gap-1 ${
-            decision === 'NO_GO' ? 'text-rose-400' : 'text-emerald-400'
+            decision === 'NOT_EVALUATED'
+              ? 'text-zinc-500'
+              : decision === 'NO_GO'
+              ? 'text-rose-400'
+              : 'text-emerald-400'
           }`}>
-            {decision === 'NO_GO' ? <XCircle className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />}
-            {decision === 'NO_GO' ? 'FAIL' : 'PASS'}
+            {decision === 'NOT_EVALUATED' ? (
+              <HelpCircle className="h-3 w-3" />
+            ) : decision === 'NO_GO' ? (
+              <XCircle className="h-3 w-3" />
+            ) : (
+              <CheckCircle2 className="h-3 w-3" />
+            )}
+            {decision === 'NOT_EVALUATED' ? 'PENDING' : decision === 'NO_GO' ? 'FAIL' : 'PASS'}
           </span>
         </div>
         <div className="rounded-lg bg-zinc-950/40 border border-zinc-850 p-2.5 flex items-center justify-between text-2xs">
           <span className="text-zinc-500">Automation Matrix</span>
           <span className="text-emerald-400 font-bold flex items-center gap-1">
             <CheckCircle2 className="h-3 w-3" />
-            98% COVERED
+            {automationCoverage}% COVERED
           </span>
         </div>
         <div className="rounded-lg bg-zinc-950/40 border border-zinc-850 p-2.5 flex items-center justify-between text-2xs">
           <span className="text-zinc-500">Quality Gates</span>
           <span className={`font-bold flex items-center gap-1 ${
-            runDetails.failed > 0 ? 'text-amber-400' : 'text-emerald-400'
+            decision === 'NOT_EVALUATED'
+              ? 'text-zinc-500'
+              : runDetails.failed > 0
+              ? 'text-amber-400'
+              : 'text-emerald-400'
           }`}>
-            {runDetails.failed > 0 ? <AlertTriangle className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />}
-            {runDetails.failed > 0 ? 'WARNING' : 'PASSED'}
+            {decision === 'NOT_EVALUATED' ? (
+              <HelpCircle className="h-3 w-3" />
+            ) : runDetails.failed > 0 ? (
+              <AlertTriangle className="h-3 w-3" />
+            ) : (
+              <CheckCircle2 className="h-3 w-3" />
+            )}
+            {decision === 'NOT_EVALUATED' ? 'PENDING' : runDetails.failed > 0 ? 'WARNING' : 'PASSED'}
           </span>
         </div>
       </div>

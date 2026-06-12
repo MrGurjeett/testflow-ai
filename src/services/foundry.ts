@@ -6,6 +6,7 @@ import {
   AutomationResponse,
   ExecutionResponse
 } from '@/types/agents';
+import { executeTestExecutionAgent, executeResultAggregatorAgent } from "./orchestrator";
 
 const ENDPOINT = process.env.AZURE_AI_PROJECT_ENDPOINT || "https://aihackathonms-resource.services.ai.azure.com/api/projects/AIHackathonMS";
 
@@ -272,6 +273,8 @@ export async function runFullWorkflow(userStory: string): Promise<{
   requirements?: RequirementsAnalysisResponse;
   testDesign?: TestDesignResponse;
   automation?: AutomationResponse;
+  testExecution?: any;
+  resultAggregator?: any;
   qualityAssessment?: ExecutionResponse;
   status: 'SUCCESS' | 'FAILED';
   failedAgent?: 'RequirementAnalyst' | 'TestDesignAgent' | 'AutomationEngineerAgent' | 'QualityIntelligenceAgent';
@@ -290,6 +293,8 @@ export async function runFullWorkflow(userStory: string): Promise<{
     requirements?: RequirementsAnalysisResponse;
     testDesign?: TestDesignResponse;
     automation?: AutomationResponse;
+    testExecution?: any;
+    resultAggregator?: any;
     qualityAssessment?: ExecutionResponse;
     status: 'SUCCESS' | 'FAILED';
     failedAgent?: 'RequirementAnalyst' | 'TestDesignAgent' | 'AutomationEngineerAgent' | 'QualityIntelligenceAgent';
@@ -303,6 +308,8 @@ export async function runFullWorkflow(userStory: string): Promise<{
     requirements: undefined,
     testDesign: undefined,
     automation: undefined,
+    testExecution: undefined,
+    resultAggregator: undefined,
     qualityAssessment: undefined,
     status: 'FAILED',
     failedAgent: undefined,
@@ -313,7 +320,7 @@ export async function runFullWorkflow(userStory: string): Promise<{
     duration: '0ms',
   };
 
-  let currentStep: 'RequirementAnalyst' | 'TestDesignAgent' | 'AutomationEngineerAgent' | 'QualityIntelligenceAgent' = 'RequirementAnalyst';
+  let currentStep: 'RequirementAnalyst' | 'TestDesignAgent' | 'AutomationEngineerAgent' | 'TestExecutionAgent' | 'ResultAggregatorAgent' | 'QualityIntelligenceAgent' = 'RequirementAnalyst';
 
   try {
     // Step 1: RequirementAnalyst
@@ -321,7 +328,7 @@ export async function runFullWorkflow(userStory: string): Promise<{
     console.log('[SequentialOrchestrator] Running Step 1: RequirementAnalyst...');
     result.requirements = await callRequirementAnalyst(userStory);
 
-    // Step 2: TestDesignAgent
+    // Step-2: TestDesignAgent
     currentStep = 'TestDesignAgent';
     console.log("[Orchestrator] Running Agent 2 in orchestration mode");
     const testDesignInput = {
@@ -339,12 +346,22 @@ export async function runFullWorkflow(userStory: string): Promise<{
     };
     result.automation = await callAutomationEngineerAgent(automationInput);
 
-    // Step 4: QualityIntelligenceAgent
+    // Step 4: TestExecutionAgent
+    currentStep = 'TestExecutionAgent';
+    console.log("[Orchestrator] Running Agent 4: TestExecutionAgent");
+    result.testExecution = await executeTestExecutionAgent(result.automation);
+
+    // Step 5: ResultAggregatorAgent
+    currentStep = 'ResultAggregatorAgent';
+    console.log("[Orchestrator] Running Agent 5: ResultAggregatorAgent");
+    result.resultAggregator = await executeResultAggregatorAgent(result.testExecution);
+
+    // Step 6: QualityIntelligenceAgent
     currentStep = 'QualityIntelligenceAgent';
-    console.log("[Orchestrator] Running Agent 4 in orchestration mode");
+    console.log("[Orchestrator] Running Agent 6 in orchestration mode");
     const qualityInput = {
       orchestration_mode: true,
-      ...result.automation
+      ...result.resultAggregator
     };
     result.qualityAssessment = await callQualityIntelligenceAgent(qualityInput);
 
@@ -354,7 +371,12 @@ export async function runFullWorkflow(userStory: string): Promise<{
     const errorMessage = error.message || String(error);
     console.error(`[SequentialOrchestrator] Workflow failed at step "${currentStep}": ${errorMessage}`);
     result.status = 'FAILED';
-    result.failedAgent = currentStep;
+    // Map the current step back to one of the 4 key agents if a match is needed, or keep the step
+    if (currentStep === 'TestExecutionAgent' || currentStep === 'ResultAggregatorAgent') {
+      result.failedAgent = 'QualityIntelligenceAgent' as any;
+    } else {
+      result.failedAgent = currentStep as any;
+    }
     result.error = errorMessage;
   } finally {
     const completedAt = new Date();

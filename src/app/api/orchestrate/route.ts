@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { runFullWorkflow } from '@/services/foundry';
+import { runWorkflow } from '@/services/orchestrator';
 
 /**
  * POST /api/orchestrate
- * Next.js App Router API route to run the multi-agent QA orchestration.
+ * Next.js App Router API route to run the multi-agent QA orchestration with progressive updates.
  * 
  * Request Body:
  * {
@@ -26,37 +26,56 @@ export async function POST(req: NextRequest) {
 
     const { userStory } = body;
 
+    const responseStream = new TransformStream();
+    const writer = responseStream.writable.getWriter();
+    const encoder = new TextEncoder();
+
     // Execute the sequential multi-agent workflow
-    const results = await runFullWorkflow(userStory);
+    runWorkflow(userStory, (event) => {
+      // Write progress events directly to the stream
+      writer.write(encoder.encode(JSON.stringify({ type: 'progress', ...event }) + '\n'));
+    })
+      .then((finalResult) => {
+        if (!finalResult.success) {
+          writer.write(encoder.encode(JSON.stringify({
+            type: 'error',
+            error: finalResult.error,
+            failedAgent: finalResult.failedAgent
+          }) + '\n'));
+        } else {
+          writer.write(encoder.encode(JSON.stringify({
+            type: 'final',
+            workflowResults: {
+              requirements: finalResult.requirementsOutput,
+              testDesign: finalResult.testDesignOutput,
+              automation: finalResult.automationOutput,
+              testExecution: finalResult.testExecutionOutput,
+              resultAggregator: finalResult.resultAggregatorOutput,
+              qualityAssessment: finalResult.qualityOutput,
+              status: 'SUCCESS',
+              timings: finalResult.timings,
+            }
+          }) + '\n'));
+        }
+        writer.close();
+      })
+      .catch((error: any) => {
+        const errorMsg = error.message || String(error);
+        writer.write(encoder.encode(JSON.stringify({
+          type: 'error',
+          error: errorMsg,
+          failedAgent: error.failedAgent || 'Unknown'
+        }) + '\n'));
+        writer.close();
+      });
 
-    if (results.status === 'FAILED') {
-      // Return 500 Internal Server Error with specific failed agent and error message
-      return NextResponse.json(
-        {
-          success: false,
-          failedAgent: results.failedAgent || 'Unknown',
-          error: results.error || 'An error occurred during workflow execution.',
-        },
-        { status: 500 }
-      );
-    }
-
-    // Return the successful orchestration response bundle
-    return NextResponse.json(
-      {
-        success: true,
-        workflowResults: {
-          requirements: results.requirements,
-          testDesign: results.testDesign,
-          automation: results.automation,
-          qualityAssessment: results.qualityAssessment,
-          status: results.status,
-          timestamps: results.timestamps,
-          duration: results.duration,
-        },
+    return new Response(responseStream.readable, {
+      headers: {
+        'Content-Type': 'application/x-ndjson',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
       },
-      { status: 200 }
-    );
+    });
 
   } catch (error: any) {
     console.error('[POST /api/orchestrate Exception]', error);
