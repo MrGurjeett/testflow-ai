@@ -18,7 +18,7 @@ import AgentPipeline from '@/components/AgentPipeline';
 import ReleaseRecommendation from '@/components/ReleaseRecommendation';
 import AgentCard from '@/components/AgentCard';
 import { PRESETS } from '@/lib/presets';
-import { AgentOutputs, AgentStatus } from '@/types/workflow';
+import { AgentOutputs, AgentStatus, ReleaseDecisionType } from '@/types/workflow';
 
 const modelMetadata = {
   requirements: { model: 'gpt-4o (Azure AI Foundry)', tokens: 1240, duration: '2.4s' },
@@ -98,6 +98,79 @@ function parseQualityResponse(rawText: string) {
   return res;
 }
 
+function normalizeExecutionOutput(exec: any) {
+  const rawText = typeof exec?.rawResponse === 'string' ? exec.rawResponse : typeof exec === 'string' ? exec : '';
+  const parsedFromText = rawText ? parseQualityResponse(rawText) : null;
+  const executionSummary = exec?.execution_summary || exec?.execution?.execution_summary || exec?.runDetails || {};
+  const failedTests = Array.isArray(exec?.failed_tests)
+    ? exec.failed_tests
+    : Array.isArray(exec?.failedTests)
+      ? exec.failedTests
+      : Array.isArray(exec?.criticalDefects)
+        ? exec.criticalDefects
+        : [];
+
+  const passRate =
+    executionSummary.pass_percentage ??
+    executionSummary.passRate ??
+    exec?.pass_percentage ??
+    exec?.passRate ??
+    parsedFromText?.passRate ??
+    0;
+
+  const failedTestsCount =
+    executionSummary.failed ??
+    exec?.failed_tests?.length ??
+    exec?.failedTests?.length ??
+    exec?.runDetails?.failed ??
+    exec?.failed ??
+    parsedFromText?.runDetails?.failed ??
+    0;
+
+  const criticalDefectsSource = failedTests.length > 0 ? failedTests : parsedFromText?.criticalDefects || [];
+
+  const criticalDefects = criticalDefectsSource.flatMap((x: any) => {
+    if (typeof x === 'string') {
+      return [x];
+    }
+
+    if (x && x.severity === 'Critical') {
+      return [x.description || x.message || x.name || JSON.stringify(x)];
+    }
+
+    return [];
+  });
+
+  const releaseDecision =
+    parsedFromText?.releaseDecision && parsedFromText.releaseDecision !== 'NOT_EVALUATED'
+      ? parsedFromText.releaseDecision
+      : passRate >= 95 && criticalDefects.length === 0
+        ? 'APPROVED'
+        : 'REJECTED';
+
+  return {
+    passRate,
+    failedTests: failedTestsCount,
+    criticalDefects,
+    releaseDecision,
+    runDetails: {
+      totalTests:
+        executionSummary.total_tests ??
+        exec?.runDetails?.totalTests ??
+        0,
+      passed:
+        executionSummary.passed ??
+        exec?.runDetails?.passed ??
+        0,
+      failed: failedTestsCount,
+      duration:
+        executionSummary.execution_duration ??
+        exec?.runDetails?.duration ??
+        '0s'
+    }
+  };
+}
+
 export default function DashboardPage() {
   // Navigation & theme states
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -136,6 +209,10 @@ export default function DashboardPage() {
     timersRef.current.forEach((t) => clearTimeout(t));
     timersRef.current = [];
   };
+
+  const workflowRunsCount = PRESETS.length;
+  const totalAgents = Object.keys(agentStatuses).length;
+  const onlineAgents = Object.values(agentStatuses).filter((status) => status !== 'idle').length;
 
   useEffect(() => {
     return () => clearTimers();
@@ -235,6 +312,24 @@ export default function DashboardPage() {
       const toStep = (v: any): string =>
         Array.isArray(v) ? v.join(' and ') : (v || '');
 
+      const agentKeyMap: Record<string, string> = {
+        RequirementAnalyst: 'requirements',
+        TestDesignAgent: 'design',
+        AutomationEngineerAgent: 'automation',
+        TestExecutionAgent: 'testExecution',
+        ResultAggregatorAgent: 'resultAggregator',
+        QualityIntelligenceAgent: 'execution'
+      };
+
+      const stepIndexMap: Record<string, number> = {
+        RequirementAnalyst: 1,
+        TestDesignAgent: 2,
+        AutomationEngineerAgent: 3,
+        TestExecutionAgent: 4,
+        ResultAggregatorAgent: 5,
+        QualityIntelligenceAgent: 6
+      };
+
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -254,122 +349,209 @@ export default function DashboardPage() {
             continue;
           }
 
-          if (parsedEvent.type === 'progress') {
-            const { agent, data } = parsedEvent;
-
-            if (agent === 'RequirementsAnalyst') {
-              const req = data || {};
-              const parsedRequirements = {
-                businessRules: req.businessRules || req.business_rules || [],
-                edgeCases: req.edgeCases || req.edge_cases || [],
-                riskAreas: req.riskAreas || req.risk_areas || [],
-                assumptions: req.assumptions || [],
-                rawResponse: req.rawResponse
-              };
-              setActiveOutputs((prev) => ({ ...prev, requirements: parsedRequirements }));
-              setAgentStatuses((prev) => ({ ...prev, requirements: 'completed', design: 'running' }));
-              setCurrentStep(2);
-            } 
-            else if (agent === 'TestDesignArchitect') {
-              const testD = data || {};
-              const coverage = testD.coverage_summary || {};
-              const traceability = testD.traceability || {};
-              const totalReq = coverage.total_requirements || 0;
-              const coveredReq = coverage.requirements_covered ?? Object.keys(traceability).length;
-              const coveragePercent = testD.coveragePercent ?? (totalReq ? Math.round((coveredReq / totalReq) * 100) : 0);
-
-              const parsedDesign = {
-                functionalTestCount: testD.functionalTestCount || testD.functional_tests?.length || 0,
-                bddScenarioCount: testD.bddScenarioCount || testD.bdd_scenarios?.length || 0,
-                coverageSummary: testD.coverageSummary || '',
-                coveragePercent,
-                scenarios: (testD.scenarios || testD.bdd_scenarios || []).map((s: any) => ({
-                  title: s.scenario_name || s.title || '',
-                  given: toStep(s.given),
-                  when: toStep(s.when),
-                  then: toStep(s.then),
-                })),
-                rawResponse: testD.rawResponse
-              };
-              setActiveOutputs((prev) => ({ ...prev, design: parsedDesign }));
-              setAgentStatuses((prev) => ({ ...prev, design: 'completed', automation: 'running' }));
-              setCurrentStep(3);
+          if (parsedEvent.type === 'AGENT_STARTED') {
+            const uiKey = agentKeyMap[parsedEvent.agent];
+            const stepIndex = stepIndexMap[parsedEvent.agent];
+            if (uiKey && stepIndex) {
+              setAgentStatuses((prev) => ({ ...prev, [uiKey]: 'running' }));
+              setCurrentStep(stepIndex);
             }
-            else if (agent === 'AutomationArchitect') {
-              const auto = data || {};
-              const readinessRaw = auto.automationReadiness ?? auto.automation_summary?.automation_readiness;
-              const automationReadiness =
-                typeof readinessRaw === 'string'
-                  ? parseInt(readinessRaw, 10) || 0
-                  : (readinessRaw || 0);
+          }
+          else if (parsedEvent.type === 'AGENT_COMPLETED') {
+            const uiKey = agentKeyMap[parsedEvent.agent];
+            const data = parsedEvent.data;
 
-              const artifacts = auto.generated_artifacts || {};
-              const codeSnippets = auto.codeSnippets || [
-                ...(artifacts.page_objects || []).map((p: any) => ({
-                  filename: `pages/${p.name}.ts`,
-                  language: 'typescript',
-                  code: p.code,
-                })),
-                ...(artifacts.test_scripts || []).map((t: any) => ({
-                  filename: `tests/${t.id}.spec.ts`,
-                  language: 'typescript',
-                  code: t.code,
-                })),
-              ];
-
-              const parsedAutomation = {
-                frameworkUsed: auto.frameworkUsed || auto.framework || auto.automation_summary?.framework_used || '',
-                testCasesAutomated: auto.testCasesAutomated || auto.automation_summary?.total_test_cases_automated || 0,
-                automationReadiness,
-                codeSnippets,
-                rawResponse: auto.rawResponse
-              };
-              setActiveOutputs((prev) => ({ ...prev, automation: parsedAutomation }));
-              setAgentStatuses((prev) => ({ ...prev, automation: 'completed', testExecution: 'running' }));
-              setCurrentStep(4);
-            }
-            else if (agent === 'TestExecutionAgent') {
-              const testExec = data || {};
-              setActiveOutputs((prev) => ({ ...prev, testExecution: testExec }));
-              setAgentStatuses((prev) => ({ ...prev, testExecution: 'completed', resultAggregator: 'running' }));
-              setCurrentStep(5);
-            }
-            else if (agent === 'ResultAggregator') {
-              const resAgg = data || {};
-              setActiveOutputs((prev) => ({ ...prev, resultAggregator: resAgg }));
-              setAgentStatuses((prev) => ({ ...prev, resultAggregator: 'completed', execution: 'running' }));
-              setCurrentStep(6);
-            }
-            else if (agent === 'ExecutionInsights') {
-              const exec = data || {};
-              let parsedExecution = {
-                passRate: exec.passRate !== undefined ? exec.passRate : null,
-                criticalDefects: exec.criticalDefects || [],
-                releaseDecision: exec.releaseDecision || 'NOT_EVALUATED' as const,
-                runDetails: exec.runDetails || { totalTests: 0, passed: 0, failed: 0, duration: '0s' },
-                rawResponse: exec.rawResponse
-              };
-
-              if (exec.rawResponse && !exec.releaseDecision) {
-                const parsed = parseQualityResponse(exec.rawResponse);
-                parsedExecution = {
-                  ...parsedExecution,
-                  ...parsed
+            if (uiKey) {
+              setAgentStatuses((prev) => ({ ...prev, [uiKey]: 'completed' }));
+              
+              if (uiKey === 'requirements') {
+                const req = data || {};
+                const parsedRequirements = {
+                  businessRules: req.businessRules || req.business_rules || [],
+                  edgeCases: req.edgeCases || req.edge_cases || [],
+                  riskAreas: req.riskAreas || req.risk_areas || [],
+                  assumptions: req.assumptions || [],
+                  rawResponse: req.rawResponse
                 };
-              } else if (exec.runDetails) {
-                parsedExecution.runDetails = {
-                  totalTests: 0,
-                  passed: 0,
-                  failed: 0,
-                  duration: '0s',
-                  ...exec.runDetails
+                setActiveOutputs((prev) => ({ ...prev, requirements: parsedRequirements }));
+              } 
+              else if (uiKey === 'design') {
+                const testD = data || {};
+                const coverage = testD.coverage_summary || {};
+                const traceability = testD.traceability || {};
+                const totalReq = coverage.total_requirements || 0;
+                const coveredReq = coverage.requirements_covered ?? Object.keys(traceability).length;
+                const coveragePercent = testD.coveragePercent ?? (totalReq ? Math.round((coveredReq / totalReq) * 100) : 0);
+
+                const parsedDesign = {
+                  functionalTestCount: testD.functionalTestCount || testD.functional_tests?.length || 0,
+                  bddScenarioCount: testD.bddScenarioCount || testD.bdd_scenarios?.length || 0,
+                  coverageSummary: testD.coverageSummary || '',
+                  coveragePercent,
+                  scenarios: (testD.scenarios || testD.bdd_scenarios || []).map((s: any) => ({
+                    title: s.scenario_name || s.title || '',
+                    given: toStep(s.given),
+                    when: toStep(s.when),
+                    then: toStep(s.then),
+                  })),
+                  rawResponse: testD.rawResponse
                 };
+                setActiveOutputs((prev) => ({ ...prev, design: parsedDesign }));
               }
-              setActiveOutputs((prev) => ({ ...prev, execution: parsedExecution }));
-              setAgentStatuses((prev) => ({ ...prev, execution: 'completed' }));
-              setCurrentStep(7);
+              else if (uiKey === 'automation') {
+                const auto = data || {};
+                const readinessRaw = auto.automationReadiness ?? auto.automation_summary?.automation_readiness;
+                const automationReadiness =
+                  typeof readinessRaw === 'string'
+                    ? parseInt(readinessRaw, 10) || 0
+                    : (readinessRaw || 0);
+
+                const artifacts = auto.generated_artifacts || {};
+                const codeSnippets = auto.codeSnippets || [
+                  ...(artifacts.page_objects || []).map((p: any) => ({
+                    filename: `pages/${p.name}.ts`,
+                    language: 'typescript',
+                    code: p.code,
+                  })),
+                  ...(artifacts.test_scripts || []).map((t: any) => ({
+                    filename: `tests/${t.id}.spec.ts`,
+                    language: 'typescript',
+                    code: t.code,
+                  })),
+                ];
+
+                const parsedAutomation = {
+                  frameworkUsed: auto.frameworkUsed || auto.framework || auto.automation_summary?.framework_used || '',
+                  testCasesAutomated: auto.testCasesAutomated || auto.automation_summary?.total_test_cases_automated || 0,
+                  automationReadiness,
+                  codeSnippets,
+                  rawResponse: auto.rawResponse
+                };
+                setActiveOutputs((prev) => ({ ...prev, automation: parsedAutomation }));
+              }
+              else if (uiKey === 'testExecution') {
+                const testExec = data || {};
+                console.log("Agent4 Raw Data", data);
+                const parsedTestExecution = {
+                  total_tests:
+                    testExec.total_tests ??
+                    testExec.execution_summary?.total_tests ??
+                    0,
+
+                  passed:
+                    testExec.passed ??
+                    testExec.execution_summary?.passed ??
+                    0,
+
+                  failed:
+                    testExec.failed ??
+                    testExec.execution_summary?.failed ??
+                    0,
+
+                  skipped:
+                    testExec.skipped ??
+                    testExec.execution_summary?.skipped ??
+                    0,
+
+                  execution_duration:
+                    testExec.execution_duration ??
+                    testExec.execution_summary?.execution_duration ??
+                    "0s",
+
+                  pass_percentage:
+                    testExec.pass_percentage ??
+                    testExec.execution_summary?.pass_percentage ??
+                    0,
+
+                  fail_percentage:
+                    testExec.fail_percentage ??
+                    testExec.execution_summary?.fail_percentage ??
+                    0,
+
+                  rawResponse: testExec.rawResponse
+                };
+                setActiveOutputs((prev) => ({ ...prev, testExecution: parsedTestExecution }));
+              }
+              else if (uiKey === 'resultAggregator') {
+                const resAgg = data || {};
+                console.log("Agent5 Raw Data", data);
+                setActiveOutputs((prev) => ({ ...prev, resultAggregator: resAgg }));
+              }
+              else if (uiKey === 'execution') {
+                const exec = data || {};
+                console.log("Agent6 Raw Data", data);
+
+                const parsedExecution = normalizeExecutionOutput(exec);
+
+                console.log("Agent6 Output", parsedExecution);
+
+                setActiveOutputs((prev) => ({
+                  ...prev,
+                  execution: {
+                    ...parsedExecution,
+                    releaseDecision: parsedExecution.releaseDecision as ReleaseDecisionType,
+                    rawResponse: exec.rawResponse || JSON.stringify(exec)
+                  }
+                }));
+                setCurrentStep(7);
+              }
             }
-          } 
+          }
+          else if (parsedEvent.type === 'AGENT_FAILED') {
+            const uiKey = agentKeyMap[parsedEvent.agent];
+            const errorMsg = parsedEvent.error || 'An error occurred.';
+            if (uiKey) {
+              setAgentStatuses((prev) => ({ ...prev, [uiKey]: 'failed' }));
+              setActiveOutputs((prev) => {
+                const updated = { ...prev };
+                if (uiKey === 'requirements') {
+                  updated.requirements = {
+                    businessRules: [`Error: ${errorMsg}`],
+                    edgeCases: [],
+                    riskAreas: []
+                  };
+                } else if (uiKey === 'design') {
+                  updated.design = {
+                    functionalTestCount: 0,
+                    bddScenarioCount: 0,
+                    coverageSummary: `Failed to design tests: ${errorMsg}`,
+                    scenarios: []
+                  };
+                } else if (uiKey === 'automation') {
+                  updated.automation = {
+                    frameworkUsed: 'Playwright',
+                    testCasesAutomated: 0,
+                    automationReadiness: 0,
+                    codeSnippets: [{ filename: 'error.log', language: 'text', code: errorMsg }]
+                  };
+                } else if (uiKey === 'testExecution') {
+                  updated.testExecution = {
+                    total_tests: 0,
+                    passed: 0,
+                    failed: 0,
+                    skipped: 0,
+                    execution_duration: '0s',
+                    pass_percentage: 0,
+                    fail_percentage: 0,
+                    rawResponse: `Failed: ${errorMsg}`
+                  };
+                } else if (uiKey === 'resultAggregator') {
+                  updated.resultAggregator = {
+                    summary: `Failed: ${errorMsg}`,
+                    logs: errorMsg
+                  };
+                } else if (uiKey === 'execution') {
+                  updated.execution = {
+                    passRate: 0,
+                    criticalDefects: [errorMsg],
+                    releaseDecision: 'NO_GO',
+                    runDetails: { totalTests: 0, passed: 0, failed: 0, duration: '0s' }
+                  };
+                }
+                return updated;
+              });
+            }
+          }
           else if (parsedEvent.type === 'error') {
             const failedAgent = parsedEvent.failedAgent || 'RequirementAnalyst';
             const errorMsg = parsedEvent.error || 'An error occurred during workflow execution.';
@@ -379,6 +561,10 @@ export default function DashboardPage() {
               uiAgentKey = 'design';
             } else if (failedAgent === 'AutomationEngineerAgent' || failedAgent === 'AutomationArchitect') {
               uiAgentKey = 'automation';
+            } else if (failedAgent === 'TestExecutionAgent') {
+              uiAgentKey = 'testExecution';
+            } else if (failedAgent === 'ResultAggregatorAgent') {
+              uiAgentKey = 'resultAggregator';
             } else if (failedAgent === 'QualityIntelligenceAgent' || failedAgent === 'ExecutionIntelligence' || failedAgent === 'ExecutionInsights') {
               uiAgentKey = 'execution';
             }
@@ -396,39 +582,6 @@ export default function DashboardPage() {
                   updated[key] = 'idle';
                 }
               });
-              return updated;
-            });
-
-            setActiveOutputs((prev) => {
-              const updated = { ...prev };
-              if (uiAgentKey === 'requirements') {
-                updated.requirements = {
-                  businessRules: [`Error: ${errorMsg}`],
-                  edgeCases: [],
-                  riskAreas: []
-                };
-              } else if (uiAgentKey === 'design') {
-                updated.design = {
-                  functionalTestCount: 0,
-                  bddScenarioCount: 0,
-                  coverageSummary: `Failed to design tests: ${errorMsg}`,
-                  scenarios: []
-                };
-              } else if (uiAgentKey === 'automation') {
-                updated.automation = {
-                  frameworkUsed: 'Playwright',
-                  testCasesAutomated: 0,
-                  automationReadiness: 0,
-                  codeSnippets: [{ filename: 'error.log', language: 'text', code: errorMsg }]
-                };
-              } else if (uiAgentKey === 'execution') {
-                updated.execution = {
-                  passRate: 0,
-                  criticalDefects: [errorMsg],
-                  releaseDecision: 'NO_GO',
-                  runDetails: { totalTests: 0, passed: 0, failed: 0, duration: '0s' }
-                };
-              }
               return updated;
             });
 
@@ -484,6 +637,8 @@ export default function DashboardPage() {
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
         activeItem="dashboard"
+        workflowRunsCount={workflowRunsCount}
+        agentCount={totalAgents}
       />
 
       {/* SaaS Layout - Header */}
@@ -491,8 +646,8 @@ export default function DashboardPage() {
         onMenuClick={() => setIsSidebarOpen(true)}
         theme={theme}
         onThemeToggle={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
-        onlineAgents={6}
-        totalAgents={6}
+        onlineAgents={onlineAgents}
+        totalAgents={totalAgents}
       />
 
       {/* Main SaaS Dashboard Container */}
@@ -765,7 +920,16 @@ export default function DashboardPage() {
                 metrics={[
                   { label: 'Pass Rate', value: activeOutputs.execution?.passRate !== null && activeOutputs.execution?.passRate !== undefined ? `${activeOutputs.execution.passRate}%` : 'N/A', accentColor: 'text-emerald-400' },
                   { label: 'Failed Tests', value: activeOutputs.execution?.runDetails?.failed || 0 },
-                  { label: 'Critical Defects', value: activeOutputs.execution?.criticalDefects?.length || 0, accentColor: (activeOutputs.execution?.criticalDefects?.length || 0) > 0 ? 'text-rose-400' : 'text-zinc-500' }
+                  { label: 'Critical Defects', value: activeOutputs.execution?.criticalDefects?.length || 0, accentColor: (activeOutputs.execution?.criticalDefects?.length || 0) > 0 ? 'text-rose-400' : 'text-zinc-500' },
+                  { 
+                    label: 'Release Decision', 
+                    value: activeOutputs.execution?.releaseDecision || 'NOT_EVALUATED', 
+                    accentColor: activeOutputs.execution?.releaseDecision === 'APPROVED' || activeOutputs.execution?.releaseDecision === 'GO'
+                      ? 'text-emerald-400' 
+                      : activeOutputs.execution?.releaseDecision === 'REJECTED' || activeOutputs.execution?.releaseDecision === 'NO_GO'
+                      ? 'text-rose-400' 
+                      : 'text-zinc-500' 
+                  }
                 ]}
               >
                 <div className="space-y-3">

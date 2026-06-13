@@ -16,6 +16,8 @@ interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
   activeItem?: string;
+  workflowRunsCount?: number;
+  agentCount?: number;
 }
 
 interface MenuItem {
@@ -34,7 +36,25 @@ const MENU_ITEMS: MenuItem[] = [
   { id: 'settings', name: 'Settings', icon: Settings },
 ];
 
-export default function Sidebar({ isOpen, onClose, activeItem = 'dashboard' }: SidebarProps) {
+export default function Sidebar({
+  isOpen,
+  onClose,
+  activeItem = 'dashboard',
+  workflowRunsCount = 0,
+  agentCount = 0,
+}: SidebarProps) {
+  const menuItems = MENU_ITEMS.map((item) => {
+    if (item.id === 'runs') {
+      return { ...item, count: workflowRunsCount };
+    }
+
+    if (item.id === 'agents') {
+      return { ...item, count: agentCount };
+    }
+
+    return item;
+  });
+
   const sidebarContent = (
     <div className="flex h-full flex-col border-r border-zinc-800 bg-zinc-950 px-4 py-6">
       {/* Brand Logo & Name */}
@@ -60,7 +80,7 @@ export default function Sidebar({ isOpen, onClose, activeItem = 'dashboard' }: S
 
       {/* Main Menu Links */}
       <nav className="flex-1 space-y-1.5 px-1">
-        {MENU_ITEMS.map((item) => {
+        {menuItems.map((item) => {
           const isActive = activeItem === item.id;
           const Icon = item.icon;
 

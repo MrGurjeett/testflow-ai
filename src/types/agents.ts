@@ -64,7 +64,7 @@ export interface OrchestrationSuccessResponse {
 
 export interface OrchestrationFailureResponse {
   success: false;
-  failedAgent: 'RequirementsAnalyst' | 'TestDesignArchitect' | 'AutomationArchitect' | 'ExecutionIntelligence';
+  failedAgent: 'RequirementsAnalyst' | 'TestDesignArchitect' | 'AutomationArchitect' | 'TestExecutionAgent' | 'ResultAggregatorAgent' | 'ExecutionIntelligence';
   error: string;
 }
 

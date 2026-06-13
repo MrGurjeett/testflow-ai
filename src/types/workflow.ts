@@ -2,7 +2,7 @@ export type AgentType = 'requirements' | 'design' | 'automation' | 'execution';
 
 export type AgentStatus = 'idle' | 'running' | 'completed' | 'failed';
 
-export type ReleaseDecisionType = 'GO' | 'CONDITIONAL_GO' | 'NO_GO' | 'NOT_EVALUATED';
+export type ReleaseDecisionType = 'GO' | 'CONDITIONAL_GO' | 'NO_GO' | 'NOT_EVALUATED' | 'APPROVED' | 'REJECTED';
 
 export interface RequirementsOutput {
   businessRules: string[];

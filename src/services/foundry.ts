@@ -6,8 +6,6 @@ import {
   AutomationResponse,
   ExecutionResponse
 } from '@/types/agents';
-import { executeTestExecutionAgent, executeResultAggregatorAgent } from "./orchestrator";
-
 const ENDPOINT = process.env.AZURE_AI_PROJECT_ENDPOINT || "https://aihackathonms-resource.services.ai.azure.com/api/projects/AIHackathonMS";
 
 let clientInstance: AIProjectClient | null = null;
@@ -265,8 +263,50 @@ export async function callQualityIntelligenceAgent(automationOutput: AutomationR
 }
 
 /**
+ * callTestExecutionAgent - Invokes the TestExecutionAgent agent in Azure AI Foundry.
+ */
+export async function callTestExecutionAgent(automationOutput: any): Promise<any> {
+  if (!automationOutput || typeof automationOutput !== 'object') {
+    automationOutput = {} as any;
+  }
+
+  // Validation and auto-injection of orchestration_mode
+  if (!isOrchestrationMode(automationOutput)) {
+    console.log("[FoundryService] Verification failed: orchestration_mode is missing or false before invoking TestExecutionAgent. Injecting automatically.");
+    automationOutput.orchestration_mode = true;
+  }
+
+  const response = await executeAgentCall<any>("TestExecutionAgent", automationOutput);
+  if (isInteractivePrompt(response)) {
+    console.warn("[FoundryService] Warning: TestExecutionAgent returned an interactive prompt, indicating the agent is still running in interactive mode.");
+  }
+  return response;
+}
+
+/**
+ * callResultAggregatorAgent - Invokes the ResultAggregatorAgent agent in Azure AI Foundry.
+ */
+export async function callResultAggregatorAgent(testExecutionOutput: any): Promise<any> {
+  if (!testExecutionOutput || typeof testExecutionOutput !== 'object') {
+    testExecutionOutput = {} as any;
+  }
+
+  // Validation and auto-injection of orchestration_mode
+  if (!isOrchestrationMode(testExecutionOutput)) {
+    console.log("[FoundryService] Verification failed: orchestration_mode is missing or false before invoking ResultAggregatorAgent. Injecting automatically.");
+    testExecutionOutput.orchestration_mode = true;
+  }
+
+  const response = await executeAgentCall<any>("ResultAggregatorAgent", testExecutionOutput);
+  if (isInteractivePrompt(response)) {
+    console.warn("[FoundryService] Warning: ResultAggregatorAgent returned an interactive prompt, indicating the agent is still running in interactive mode.");
+  }
+  return response;
+}
+
+/**
  * runFullWorkflow - Sequentially orchestrates the multi-agent QA verification.
- * Runs RequirementAnalyst -> TestDesignAgent -> AutomationEngineerAgent -> QualityIntelligenceAgent.
+ * Runs RequirementAnalyst -> TestDesignAgent -> AutomationEngineerAgent -> TestExecutionAgent -> ResultAggregatorAgent -> QualityIntelligenceAgent.
  * Tracks timestamps, execution duration, status, logs progress, and handles errors.
  */
 export async function runFullWorkflow(userStory: string): Promise<{
@@ -348,22 +388,23 @@ export async function runFullWorkflow(userStory: string): Promise<{
 
     // Step 4: TestExecutionAgent
     currentStep = 'TestExecutionAgent';
-    console.log("[Orchestrator] Running Agent 4: TestExecutionAgent");
-    result.testExecution = await executeTestExecutionAgent(result.automation);
+    console.log("[Orchestrator] Running Agent 4: TestExecutionAgent via Azure Foundry");
+    result.testExecution = await callTestExecutionAgent(result.automation);
 
     // Step 5: ResultAggregatorAgent
     currentStep = 'ResultAggregatorAgent';
-    console.log("[Orchestrator] Running Agent 5: ResultAggregatorAgent");
-    result.resultAggregator = await executeResultAggregatorAgent(result.testExecution);
+    console.log("[Orchestrator] Running Agent 5: ResultAggregatorAgent via Azure Foundry");
+    result.resultAggregator = await callResultAggregatorAgent(result.testExecution);
 
     // Step 6: QualityIntelligenceAgent
     currentStep = 'QualityIntelligenceAgent';
     console.log("[Orchestrator] Running Agent 6 in orchestration mode");
     const qualityInput = {
       orchestration_mode: true,
-      ...result.resultAggregator
+      execution: result.testExecution,
+      aggregation: result.resultAggregator
     };
-    result.qualityAssessment = await callQualityIntelligenceAgent(qualityInput);
+    result.qualityAssessment = await callQualityIntelligenceAgent(qualityInput as any);
 
     result.status = 'SUCCESS';
     console.log('[SequentialOrchestrator] Workflow completed successfully.');
@@ -371,7 +412,6 @@ export async function runFullWorkflow(userStory: string): Promise<{
     const errorMessage = error.message || String(error);
     console.error(`[SequentialOrchestrator] Workflow failed at step "${currentStep}": ${errorMessage}`);
     result.status = 'FAILED';
-    // Map the current step back to one of the 4 key agents if a match is needed, or keep the step
     if (currentStep === 'TestExecutionAgent' || currentStep === 'ResultAggregatorAgent') {
       result.failedAgent = 'QualityIntelligenceAgent' as any;
     } else {

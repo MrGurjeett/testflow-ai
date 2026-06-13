@@ -44,7 +44,7 @@ export default function ReleaseRecommendation({
   let riskLevel = 'Undetermined';
   let riskColor = 'text-zinc-500';
 
-  if (decision === 'GO') {
+  if (decision === 'GO' || decision === 'APPROVED') {
     titleColor = 'text-emerald-400';
     badgeColor = 'bg-emerald-500/10 text-emerald-400 ring-emerald-500/20';
     cardGlow = 'border-emerald-500/30 bg-emerald-950/10 shadow-[0_0_25px_rgba(16,185,129,0.08)]';
@@ -60,7 +60,7 @@ export default function ReleaseRecommendation({
     Icon = ShieldAlert;
     riskLevel = 'Medium Risk';
     riskColor = 'text-amber-400';
-  } else if (decision === 'NO_GO') {
+  } else if (decision === 'NO_GO' || decision === 'REJECTED') {
     titleColor = 'text-rose-400';
     badgeColor = 'bg-rose-500/10 text-rose-400 ring-rose-500/20';
     cardGlow = 'border-rose-500/35 bg-rose-950/10 shadow-[0_0_25px_rgba(244,63,94,0.08)]';
